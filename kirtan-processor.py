@@ -10,16 +10,20 @@ startTime = time.time()
 # shabads = banidb.search("sGrb")
 
 dir_path=input('Which folder would you like to process?')
-# /Users/aman/Downloads/raw2
+# dir_path = /Users/aman/Downloads/raw2
 # dir_path = fd.askdirectory(parent=root,initialdir='.', title='Please select a directory')
 # root.destroy
-print(f'found path {dir_path}')
+print(f'\nfound path {dir_path}')
 raw_tracks = listdir(dir_path)
+
+# windows vs. mac stuff
 if dir_path.find('\\') != -1 and dir_path[-1] != '\\':
     dir_path += '\\'
 elif dir_path.find('/') != -1 and dir_path[-1] != '/':
     dir_path += '/'
+
 tracks = {dir_path + tr[:9] for tr in raw_tracks if tr[:4] == 'ZOOM'} # exclude hidden files
+
 for track in tracks:
     # print("created: %s" % time.ctime(path.getmtime(f'{track}LR.WAV')))
     # this didn't work because metadata was destroyed during download
@@ -28,7 +32,7 @@ for track in tracks:
     # merge possible separate audio tracks
     sangat_track = f'{track}LR.WAV'
     if sangat_track[len(dir_path):] not in raw_tracks:
-        sangat_tracks = [tr for tr in raw_tracks if tr.startswith(sangat_track[len(dir_path):-4])]
+        sangat_tracks = [tr for tr in raw_tracks if tr.startswith(sangat_track[len(dir_path):-4] + '-')]
         sangat_audios = [AudioSegment.from_file(dir_path + tr) for tr in sorted(sangat_tracks)]
         sangat = sum(sangat_audios, AudioSegment.empty())
     else:
@@ -36,7 +40,7 @@ for track in tracks:
     
     tabla_track = f'{track}Tr1.WAV'
     if tabla_track[len(dir_path):] not in raw_tracks:
-        tabla_tracks = [tr for tr in raw_tracks if tr.startswith(tabla_track[len(dir_path):-4])]
+        tabla_tracks = [tr for tr in raw_tracks if tr.startswith(tabla_track[len(dir_path):-4] + '-')]
         tabla_audios = [AudioSegment.from_file(dir_path + tr) for tr in sorted(tabla_tracks)]
         tabla = sum(tabla_audios, AudioSegment.empty())
     else:
@@ -44,23 +48,22 @@ for track in tracks:
     
     kirtani_track = f'{track}Tr3.WAV'
     if kirtani_track[len(dir_path):] not in raw_tracks:
-        kirtani_tracks = [tr for tr in raw_tracks if tr.startswith(kirtani_track[len(dir_path):-4])]
+        kirtani_tracks = [tr for tr in raw_tracks if tr.startswith(kirtani_track[len(dir_path):-4] + '-')]
         kirtani_audios = [AudioSegment.from_file(dir_path + tr) for tr in sorted(kirtani_tracks)]
         kirtani = sum(kirtani_audios, AudioSegment.empty())
     else:
         kirtani = AudioSegment.from_file(kirtani_track)
     
     # feel free to manually adjust these constants
-    print(time.time()-startTime)
-    print('normalizing...')
+    print(f'normalizing {track[len(dir_path):-1]}...')
     target_db = -3
     sangat = effects.normalize(sangat) + target_db - 1
     tabla = effects.normalize(tabla) + target_db - 2
     kirtani = effects.normalize(kirtani) + target_db
 
-    print('mixing...')
+    print(f'mixing {track[len(dir_path):-1]}...')
     audio = kirtani.overlay(tabla).overlay(sangat)
-    print(f'working on {track[len(dir_path):-1]} segments...')
+    print(f'segmenting {track[len(dir_path):-1]}...')
     
     # include this line if you want an uncut version
     # audio.export(f'{track}normalized_uncut.WAV',format='wav')
@@ -105,13 +108,13 @@ for track in tracks:
     for i,(start,end) in enumerate(final_cuts):
         length = end-start
         if length < 17*60000:
-            print('Possible Error: length is only {} minutes.'.format(length/60000))
+            print(f'Possible Error: length is only {length/60000} minutes.')
         # only give this error when we can tell if it is a Simran or not (based on vaari data)
         # if length > 37*60000:
-        #     print('Possible Error: length is {} minutes, quite long'.format(length/60000))
+        #     print(f'Possible Error: length is {length/60000} minutes, quite long')
         if length + 120000 < prev_length:
-            print('Possible Error: length is shorter than the previous track by {} minutes.'.format((prev_length-length)/60000))
-        audio[start:end].export('{}mixed_segment_{}.mp3'.format(track,i),format='mp3')
+            print(f'Possible Error: length is shorter than the previous track by {(prev_length-length)/60000} minutes.')
+        audio[start:end].export(f'{track}mixed_segment_{i}.mp3',format='mp3')
         prev_length = length
 
     print(f'created {track[len(dir_path):-1]} segments...\n')
