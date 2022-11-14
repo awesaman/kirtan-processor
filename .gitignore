@@ -127,3 +127,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# ADDED
+create_exec.sh
+.DS_Store
