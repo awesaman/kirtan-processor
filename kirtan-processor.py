@@ -8,9 +8,6 @@ from tkinter import filedialog as fd
 root = tkinter.Tk()
 import concurrent.futures as conc
 from itertools import repeat
-# from multiprocessing import Process
-
-# global chosen_dir_path
 
 def format_time(t):
     mins = t//60000
@@ -22,9 +19,10 @@ def format_ms(start,end):
 
 def slash(dir_path):
     # windows vs. mac stuff
-    if dir_path.find('/') != -1:
-        return '/'
-    return '\\'
+    # if dir_path.find('/') != -1:
+        # return '/'
+    # return '\\'
+    return '/'
 
 def rename_output(file_path, chosen_dir_path):
     sl = slash(chosen_dir_path)
@@ -33,24 +31,18 @@ def rename_output(file_path, chosen_dir_path):
     path_after_chosen_dir = path_after_chosen_dir.replace(slash(chosen_dir_path), ' - ')
     
     # remove duplication of ZOOMxxxx in name
-    # print(path_after_chosen_dir[-11:-7])
-    if len(path_after_chosen_dir) >= 22 and path_after_chosen_dir[-22:-15] == ' - ZOOM':
+    if len(path_after_chosen_dir) >= 19 and path_after_chosen_dir[-19:-15] == 'ZOOM':
         path_after_chosen_dir = path_after_chosen_dir[:-11]
     return chosen_dir_path + sl + 'edited' + sl + path_after_chosen_dir
 
 def edit_tracks(tup, chosen_dir_path):
     dir_path, subdirs, filenames = tup
+    dir_path = dir_path.replace('\\', '/')
 
-    # windows vs. mac stuff
-    # if dir_path.find('\\') != -1 and dir_path[-1] != '\\':
-    #     dir_path += '\\'
-    # elif dir_path.find('/') != -1 and dir_path[-1] != '/':
-    #     dir_path += '/'
     if dir_path[-1] == '/' or dir_path[-1] == '\\':
         dir_path = dir_path[:-1]
     if dir_path[-6:] == 'edited': return
     dir_path += slash(dir_path)
-
     
     tracks = {dir_path + tr[:8] for tr in filenames if tr[:4] == 'ZOOM'}
     formats = {tr[-4:] for tr in filenames if tr[:4] == 'ZOOM'}
@@ -66,10 +58,12 @@ def edit_tracks(tup, chosen_dir_path):
         print(f'ERROR: please make all audio files the same format in {dir_path}')
         return
     track_format = list(formats)[0]
+    edited_tracks = set()
     for track in tracks:
         if path.exists(f'{rename_output(track, chosen_dir_path)} - Segment 1.mp3'):
             print(f'{rename_output(track, chosen_dir_path)} has already been edited, it will be skipped.')
-            tracks.remove(track)
+            edited_tracks.add(track)
+    tracks -= edited_tracks
     print(f'NOTE: found {len(tracks)} unedited tracks in {dir_path}')
 
     for track in tracks:
@@ -197,8 +191,8 @@ if __name__ == '__main__':
         results = executor.map(edit_tracks, all_subdirs, repeat(chosen_dir_path))
         
         # this is just to view errors
-        # for res in results:
-        #     print(res)
+        for res in results:
+            print(res)
         # executor.submit(edit_tracks, all_subdirs[2])
         # print(all_subdirs)
         # edit_tracks(all_subdirs[2])
