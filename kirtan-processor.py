@@ -9,8 +9,10 @@ root = tkinter.Tk()
 import concurrent.futures as conc
 from itertools import repeat
 
+ONE_MIN = 60000
+
 def format_time(t):
-    mins = t//60000
+    mins = t // ONE_MIN
     if mins > 59:
         return f'{mins//60}:{mins%60:02}:{(t//1000)%60:02}'
     return f'{mins}:{(t//1000)%60:02}'
@@ -127,7 +129,7 @@ def edit_tracks(tup, chosen_dir_path):
         final_cuts = []
         prev_end = 0
         min_time_between_vaaris = 10000
-        dropout = 60000
+        dropout = ONE_MIN
         for start,end in segments:
             # drop out anything less than 60 seconds
             if end - start < dropout:
@@ -150,21 +152,22 @@ def edit_tracks(tup, chosen_dir_path):
             # print(format_ms(start,end))
         
         # rare case where kirtani is doing alaap at the end and it's too soft to pick up
-        ls,le = final_cuts[-1]
-        # print(len(final_cuts), le - ls, 10*60000)
-        if len(final_cuts) >= 2 and le - ls < 10*60000:
-            final_cuts = final_cuts[:-1]
-            final_cuts[-1][1] = le
-
-        print(f'{track[len(dir_path):]} segments to be exported: {[format_ms(start,end) for start,end in final_cuts]}')
-        prev_length = 0
+        if len(final_cuts) == 0:
+            print(f'WARNING: no segments found in {track[len(dir_path):]}')
+        else:
+            ls,le = final_cuts[-1]
+            if len(final_cuts) >= 2 and le - ls < 10 * ONE_MIN:
+                final_cuts = final_cuts[:-1]
+                final_cuts[-1][1] = le
+            print(f'{track[len(dir_path):]} segments to be exported: {[format_ms(start,end) for start,end in final_cuts]}')
         
+        prev_length = 0
         for i, (start, end) in enumerate(final_cuts):
             length = end - start
-            if length < 17*60000:
+            if length < 17 * ONE_MIN:
                 print(f'Possible Error: {format_ms(start,end)} length is only {format_time(length)}.')
             # only give this error when we can tell if it is a Simran or not (based on vaari data)
-            # if length > 37*60000:
+            # if length > 37 * ONE_MIN:
             #     print(f'Possible Error: {format_ms(start,end)} length is quite long at {format_time(length)}')
             elif length + 120000 < prev_length:
                 print(f'Possible Error: {format_ms(start,end)} length is shorter than the previous track by {format_time(prev_length-length)}.')
