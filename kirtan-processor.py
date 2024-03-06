@@ -8,6 +8,7 @@ from tkinter import filedialog as fd
 root = tkinter.Tk()
 import concurrent.futures as conc
 from itertools import repeat
+from gc import collect
 
 ONE_MIN = 60000
 
@@ -174,6 +175,8 @@ def edit_tracks(tup, chosen_dir_path):
             # audio[max(start-1000,0):end].export(f'{track}segment_{i}.mp3',format='mp3')
             audio[start:end].export(f'{rename_output(track, chosen_dir_path)} - Segment {i+1}.mp3',format='mp3')
             prev_length = length
+        del audio
+        collect()
 
         print(f'created {len(final_cuts)} {track[len(dir_path):]} segments...\n')
 
