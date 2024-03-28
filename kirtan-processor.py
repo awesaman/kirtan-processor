@@ -28,7 +28,7 @@ MIC_MAP = {
 
 ONE_MIN = 60000
 mics = []
-INPUT_FORMAT = '.wav'
+INPUT_FORMAT = '.WAV'
 
 def format_time(t) -> str:
     """Formats num milliseconds to mm:ss or hh:mm:ss"""
@@ -74,20 +74,19 @@ def get_mic_names(filenames):
         mics.add(file[start+1:end])
     return {mic: 0 for mic in mics}
 
-def get_track_audio(track_file_path, mic, imported_audio_format, dir_path, filenames) -> AudioSegment:
-    track_name = f'{track_file_path}_{mic}{imported_audio_format}'
-    if get_track_name(track_name, dir_path) in filenames:
+def get_track_audio(track_file_path, mic, input_format, dir_path, filenames) -> AudioSegment:
+    track_name = f'{track_file_path}_{mic}{input_format}'
+    if get_track_name(track_name, dir_path).lower() in map(lambda f: f.lower(), filenames):
         return AudioSegment.from_file(track_name)
-    
     # likely left recorder running for a long time
     # need to concatenate ZOOMxxxx_mic-0001, ZOOMxxxx_mic-0002, etc,
+    tracks = [tr for tr in filenames if tr.startswith(track_name[len(dir_path):-4] + '-')] # -4 cuts out the '.wav'
     print(f'concatenating {tracks}')
-    tracks = [tr for tr in filenames if tr.startswith(track_name[len(dir_path):-4] + '-')]
     audios = [AudioSegment.from_file(dir_path + tr) for tr in sorted(tracks)]
     return sum(audios, AudioSegment.empty())
 
 def discard_other_files(filenames):
-    return [f for f in filenames if '0' in f and f[-4:].lower() == INPUT_FORMAT]
+    return [f for f in filenames if '0' in f and f[-4:].lower() == INPUT_FORMAT.lower()]
 
 def edit_tracks(tup, chosen_dir_path, mics):
     dir_path, subdirs, filenames = tup
@@ -153,7 +152,7 @@ def edit_tracks(tup, chosen_dir_path, mics):
             
             # for convenience during testing (CHECK_BEFORE_SUBMIT):
             # include this line if you want an uncut version
-            # audio.export(f'{track}unsegmented{imported_audio_format}',format=imported_audio_format[1:].lower())
+            # audio.export(f'{track}unsegmented{imported_audio_format}',format=INPUT_FORMAT[1:])
 
         print(f'segmenting {get_track_name(track, dir_path)}')
 
@@ -221,18 +220,19 @@ def edit_tracks(tup, chosen_dir_path, mics):
         print(f'created {len(final_segments)} {get_track_name(track, dir_path)} segments!\n')
 
 def start():
-    print("""
+    print(r"""
 _  _ _ ____ ___ ____ _  _   ___  ____ ____ ____ ____ ____ ____ ____ ____ 
 |_/  | |__/  |  |__| |\ |   |__] |__/ |  | |    |___ [__  [__  |  | |__/ 
 | \_ | |  \  |  |  | | \|   |    |  \ |__| |___ |___ ___] ___] |__| |  \ 
 """)
     print('starting kirtani processor')
     print('feel free to mess around, your original files will not be modified')
+    print('recommendation: start with 1 track to find the right offsets for a samagam')
     print('press Ctrl-D to quit at any time')
     # --- CHOOSE DIR ---
     # for convenience during testing (CHECK_BEFORE_SUBMIT):
-    # chosen_dir_path = '/Users/aman/Downloads/nc'
-    chosen_dir_path = fd.askdirectory(parent=root, initialdir='.', title='Please select a directory')
+    chosen_dir_path = '/Users/aman/Downloads/dodra'
+    # chosen_dir_path = fd.askdirectory(parent=root, initialdir='.', title='Please select a directory')
     if chosen_dir_path[-1] == '/' or chosen_dir_path[-1] == '\\':
         chosen_dir_path = chosen_dir_path[:-1]
     if ('edited' not in listdir(chosen_dir_path)):
@@ -244,27 +244,27 @@ _  _ _ ____ ___ ____ _  _   ___  ____ ____ ____ ____ ____ ____ ____ ____
     all_files = chain.from_iterable([filenames for _, _, filenames in all_subdirs])
     all_files = discard_other_files(all_files)
     mics = get_mic_names(all_files)
-    print('found the following mics: ', mics)
-    for mic in mics:
+    print('found the following mics: ', list(mics.keys()))
+    for mic in sorted(mics.keys()):
         while True:
             try:
                 if mic in MIC_MAP:
-                    entered = input(f"Enter a DB value to offset by for mic {mic} (usually for {MIC_MAP[mic]}): [or press enter to accept default value of {DB_MAP[MIC_MAP[mic]]}]")
+                    entered = input(f"Enter a DB value to offset by for mic {mic}, usually for {MIC_MAP[mic]} [or press enter to accept default value of {DB_MAP[MIC_MAP[mic]]}]: ")
                     if entered.lower() == 'n':
                         # don't normalize, just mix
                         mics[mic] = 'n'
-                        print(f'mic {mic} will be mixed in with no normalization or offset')
+                        print(f'mic {mic} will be mixed in with no normalization or offset\n')
                         break
                     db = int(entered) if entered else DB_MAP[MIC_MAP[mic]]
                 else:
-                    entered = input(f"Enter a DB value to offset by for mic {mic}: [or press enter to accept default value of -3]")
+                    entered = input(f"Enter a DB value to offset by for mic {mic} [or press enter to accept default value of -3]: ")
                     if entered.lower() == 'n':
                         # don't normalize, just mix
                         mics[mic] = 'n'
-                        print(f'mic {mic} will be mixed in with no normalization or offset')
+                        print(f'mic {mic} will be mixed in with no normalization or offset\n')
                         break
                     db = int(entered) if entered else -3
-                print(f'mic {mic} set to {db}')
+                print(f'    mic {mic} set to {db}\n')
                 mics[mic] = db
                 break
             except ValueError:
@@ -277,7 +277,8 @@ _  _ _ ____ ___ ____ _  _   ___  ____ ____ ____ ____ ____ ____ ____ ____
         
         # this is just to view errors
         for res in results:
-            print(res)
+            if res:
+                print(res)
 
 
 if __name__ == '__main__':
