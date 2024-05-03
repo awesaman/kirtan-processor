@@ -129,7 +129,12 @@ def edit_tracks(tup, chosen_dir_path, mics):
     if dir_path[-7:] == "edited/":
         return
 
-    prefix_end_index = filenames[0].find("0")
+    # track will be numbered based on last 4 digits behind the last underscore
+    # accounts for cases like
+    #   ZOOM0008_Tr1 -> prefix = ZOOM, id = 0008
+    #   Custom_0008_Tr1 -> prefix = Custom_, id = 0008
+    #   042724_203144_Tr1 -> prefix = 042724_20, id = 3144         this isn't preferred, but should do the job
+    prefix_end_index = filenames[0].rfind("_") - 4
     prefix = filenames[0][:prefix_end_index]
 
     tracks = {
