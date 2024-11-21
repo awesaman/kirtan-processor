@@ -215,7 +215,7 @@ def edit_tracks(tup, chosen_dir_path, mics):
                     audios[mic] = effects.normalize(audios[mic]) + mics[mic]
                     if mic == "LR" or mic == "1-2":  # always sangat mics
                         audios[mic] = effects.low_pass_filter(
-                            audios[mic], 4000
+                            audios[mic], 6000
                         )  # attempt at dulling chainne
 
             print(f"[3/5] mixing {get_track_name(track, dir_path)}")
