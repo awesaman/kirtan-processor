@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 from pydub import AudioSegment, silence, effects
 import time
-from os import mkdir, listdir, walk, path
+from os import mkdir, listdir, walk, path, cpu_count
+from tqdm import tqdm
 
 # import banidb # for naming shabads later
 import tkinter
@@ -54,6 +55,17 @@ def slash(dir_path) -> str:
     return "/"
 
 
+def export_audio_slice(audio, s, e, name):
+    """
+    Slices an AudioSegment from 3 seconds before x to 3 seconds after y,
+    respecting the AudioSegment's boundaries.
+    """
+
+    start = max(0, s - 3000)  # Ensure start is not negative
+    end = min(len(audio), e + 3000)  # Ensure end does not exceed audio length
+    audio[start:end].export(name, format="mp3")
+
+
 def get_track_name(track_file_path, dir_path) -> str:
     """Returns prefix (usually ZOOM) + 4 digit track number given the full file path by cutting off the length of the directory"""
     return track_file_path[len(dir_path) :]
@@ -79,6 +91,9 @@ def get_mic_names(filenames):
     for file in filenames:
         start = file.rfind("_")
         end = file.rfind(".")
+        # files can be formatted like so if they exceed 2GB: ZOOM0011_LR-0001.WAV
+        if file[end - 5 : end - 1] == "-000":
+            end -= 5
         mics.add(file[start + 1 : end])
     return {mic: 0 for mic in mics}
 
@@ -104,9 +119,11 @@ def get_track_audio(track_file_path, mic, input_format, dir_path, filenames):
         tr for tr in filenames if tr.startswith(track_name[len(dir_path) : -4] + "-")
     ]  # -4 cuts out the '.wav'
 
-    print(f"[0/4] concatenating {tracks}")
-    audios = [import_audio(dir_path, tr) for tr in sorted(tracks)]
-    return mic, sum(audios, AudioSegment.empty())
+    tracks.sort()
+    print(f"[1.5/5] concatenating {tracks}")
+    audios = [import_audio(dir_path, dir_path + tr) for tr in tracks]
+    audios = sum(audios, AudioSegment.empty())
+    return mic, audios
 
 
 def discard_other_files(filenames):
@@ -171,33 +188,43 @@ def edit_tracks(tup, chosen_dir_path, mics):
 
         else:
             # merge possible separate audio tracks
-            print(f"[1/4] importing {get_track_name(track, dir_path)}")
+            print(f"[1/5] importing {get_track_name(track, dir_path)}")
             # use thread-level concurrency within 1 core for I/O intensive tasks
-            with conc.ThreadPoolExecutor() as executor:
-                audios = dict(
-                    executor.map(
-                        get_track_audio,
-                        repeat(track),
-                        tuple(mics.keys()),
-                        repeat(INPUT_FORMAT),
-                        repeat(dir_path),
-                        repeat(filenames),
+            audios = {}
+            futures = []
+            with conc.ThreadPoolExecutor(max_workers=len(mics)) as executor:
+                for mic in mics.keys():
+                    future = executor.submit(
+                        get_track_audio, track, mic, INPUT_FORMAT, dir_path, filenames
                     )
-                )
+                    futures.append(future)
+
+                for future in tqdm(conc.as_completed(futures), total=len(futures)):
+                    try:
+                        mic, audio = future.result()  # Get the result of the future
+                        audios[mic] = audio
+                    except Exception as e:
+                        # Log the exception for this particular mic
+                        print(f"Error processing audio for mic {mic}: {e}")
 
             # feel free to manually adjust these constants
-            print(f"[2/4] normalizing {get_track_name(track, dir_path)}")
+            print(f"[2/5] normalizing {get_track_name(track, dir_path)}")
             for mic in mics:
                 if mics[mic] != "n":
                     # user specified not to normalize and adjust this mic
                     audios[mic] = effects.normalize(audios[mic]) + mics[mic]
+                    if mic == "LR" or mic == "1-2":  # always sangat mics
+                        audios[mic] = effects.low_pass_filter(
+                            audios[mic], 4000
+                        )  # attempt at dulling chainne
 
-            print(f"[3/4] mixing {get_track_name(track, dir_path)}")
+            print(f"[3/5] mixing {get_track_name(track, dir_path)}")
             audios = list(audios.values())
             audio = audios[0]
             for segment in audios[1:]:
                 audio = audio.overlay(segment)
             # garbage collection to avoid using too much RAM
+            del segment
             audios.clear()
             collect()
 
@@ -205,7 +232,7 @@ def edit_tracks(tup, chosen_dir_path, mics):
             # include this line if you want an uncut version
             # audio.export(f'{track}unsegmented{imported_audio_format}',format=INPUT_FORMAT[1:])
 
-        print(f"[4/4] segmenting {get_track_name(track, dir_path)}")
+        print(f"[4/5] segmenting {get_track_name(track, dir_path)}")
 
         # NOTE: dBFS-20 will make nonsilent segments shorter than dBFS-23
         dBFS = audio.dBFS
@@ -256,8 +283,9 @@ def edit_tracks(tup, chosen_dir_path, mics):
                 final_segments = final_segments[:-1]
                 final_segments[-1][1] = le
             print(
-                f"{get_track_name(track, dir_path)} segments to be exported: {[format_ms(start,end) for start,end in final_segments]}"
+                f"    {get_track_name(track, dir_path)} segments to be exported: {[format_ms(start,end) for start,end in final_segments]}"
             )
+        print(f"[5/5] exporting {get_track_name(track, dir_path)}")
 
         prev_length = 0
         for i, (start, end) in enumerate(final_segments):
@@ -274,9 +302,11 @@ def edit_tracks(tup, chosen_dir_path, mics):
                 print(
                     f"WARNING (please check): {format_ms(start,end)} length is shorter than the previous track by {format_time(prev_length-length)}."
                 )
-            audio[start:end].export(
+            export_audio_slice(
+                audio,
+                start,
+                end,
                 f"{get_export_name(track, chosen_dir_path, prefix)} - Segment {i+1}.mp3",
-                format="mp3",
             )
             prev_length = length
 
@@ -314,7 +344,15 @@ _  _ _ ____ ___ ____ _  _   ___  ____ ____ ____ ____ ____ ____ ____ ____
     print(f"\nyou chose {chosen_dir_path}")
     all_subdirs = tuple(walk(chosen_dir_path))
 
-    # --- FIND MICS ---
+    SPEEDUP = True
+    entered = input(
+        """Enter Y if you have larger files to process and you would like to use more computing power
+    [or press enter to go at the default accelerated, less stable speed]: """
+    )
+    if entered.lower() == "y":
+        SPEEDUP = False
+
+    # --- find mics used in files and set their relative offsets ---
     all_files = chain.from_iterable([filenames for _, _, filenames in all_subdirs])
     all_files = discard_other_files(all_files)
     mics = get_mic_names(all_files)
@@ -354,18 +392,21 @@ _  _ _ ____ ___ ____ _  _   ___  ____ ____ ____ ____ ____ ____ ____ ____
                     "Invalid input. Try again. If no normalization/offset is desired, enter the letter 'n'"
                 )
 
-    # use process-level parallelism across cores for CPU intensive tasks
-    with conc.ProcessPoolExecutor() as executor:
-        # first param (tup) comes from values in all_subdirs
-        # second param (chosen_dir_path) is always chosen_dir_path
-        results = executor.map(
-            edit_tracks, all_subdirs, repeat(chosen_dir_path), repeat(mics)
-        )
+    # use process-level parallelism across cores for CPU intensive tasks (editing tracks)
+    with conc.ProcessPoolExecutor(
+        max_workers=cpu_count() // 2 if SPEEDUP else 1
+    ) as executor:
+        futures = {
+            executor.submit(edit_tracks, folder, chosen_dir_path, mics): folder
+            for folder in all_subdirs
+        }
 
-        # this is just to view errors
-        for res in results:
-            if res:
-                print(res)
+        for future in conc.as_completed(futures):
+            try:
+                future.result()
+            except Exception as e:
+                folder = futures[future]
+                print(f"Error processing folder {folder}: {e}")
 
 
 if __name__ == "__main__":
