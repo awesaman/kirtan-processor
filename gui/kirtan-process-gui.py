@@ -5138,6 +5138,9 @@ def get_default_settings():
             QMessageBox.critical(self, "Error", f"Failed to save default settings: {str(e)}")
             self.log(f"Error saving default settings: {str(e)}")
 
+def slash(dir_path) -> str:
+    return "/"
+
 def main():
     # Force proper multiprocessing method for maximum performance
     if sys.platform == 'win32':  # Windows
