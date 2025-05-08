@@ -1,1 +1,14 @@
+# Core requirements
+PyQt6>=6.5.0
+pydub>=0.25.1
+numpy>=1.20.0
 pydub==0.25.1
+
+# Optional performance enhancements
+numba>=0.56.4  # JIT compilation for silence detection
+scipy>=1.10.0  # For advanced audio filters
+pyloudnorm>=0.1.0  # For LUFS normalization
+psutil>=5.9.0  # For system resource monitoring
+
+# Development tools
+pytest>=7.0.0  # For unit testing

@@ -1,3 +1,4 @@
+/* filepath: c:\git\kirtan-processor\style.qss */
 /* Main Application Styling */
 QMainWindow {
     background-color: #f5f5f5;
@@ -155,7 +156,7 @@ QCheckBox::indicator {
 QCheckBox::indicator:checked {
     background-color: #0078d7;
     border-color: #0078d7;
-    image: url(gui/images/check.png);
+    image: url(gui/resources/check.png);
 }
 
 QCheckBox::indicator:unchecked:hover {
@@ -218,7 +219,7 @@ QComboBox::drop-down {
 }
 
 QComboBox::down-arrow {
-    image: url(gui/images/down-arrow.png);
+    image: url(gui/resources/down-arrow.png);
 }
 
 QComboBox QAbstractItemView {
@@ -411,9 +412,9 @@ QTextBrowser {
 }
 
 /* Log area with specific styling */
-#logTextEdit {
+#progressText {
     background-color: #ffffff;
     color: #303030;
     font-family: "Consolas", "Courier New", monospace;
     border: 1px solid #c0c0c0;
-} 
+}
