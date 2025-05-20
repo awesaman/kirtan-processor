@@ -1,0 +1,171 @@
+{
+  "profiles": {
+    "Kirtan": {
+      "description": "User created profile",
+      "gain": -1.0,
+      "normalize": {
+        "enabled": true,
+        "method": "rms",
+        "target_level": -18.0
+      },
+      "dynamic_processing": {
+        "enabled": false,
+        "compressor": {
+          "threshold": -20.0,
+          "ratio": 1.5,
+          "attack": 20.0,
+          "release": 250.0
+        },
+        "limiter": {
+          "enabled": false,
+          "threshold": -1.0,
+          "release": 50.0
+        }
+      },
+      "use_eq": false,
+      "eq": {
+        "high_pass": 100,
+        "low_pass": 10000
+      }
+    },
+    "Tabla": {
+      "description": "User created profile",
+      "gain": 0.0,
+      "normalize": {
+        "enabled": true,
+        "method": "rms",
+        "target_level": -20.0
+      },
+      "dynamic_processing": {
+        "enabled": true,
+        "compressor": {
+          "threshold": -15.0,
+          "ratio": 2.5,
+          "attack": 10.0,
+          "release": 300.0
+        },
+        "limiter": {
+          "enabled": false,
+          "threshold": -1.0,
+          "release": 50.0
+        }
+      },
+      "use_eq": false,
+      "eq": {
+        "high_pass": 80,
+        "low_pass": 8000
+      }
+    },
+    "Do Not Process": {
+      "ignore": true,
+      "description": "This track will be ignored during processing and mixing."
+    },
+    "Sangat Condeser": {
+      "description": "User created profile",
+      "gain": 0.0,
+      "normalize": {
+        "enabled": true,
+        "method": "lufs",
+        "target_level": -17.0
+      },
+      "dynamic_processing": {
+        "enabled": true,
+        "compressor": {
+          "threshold": -15.0,
+          "ratio": 2.5,
+          "attack": 20.0,
+          "release": 250.0
+        },
+        "limiter": {
+          "enabled": false,
+          "threshold": -6.0,
+          "release": 50.0
+        }
+      },
+      "use_eq": false,
+      "eq": {
+        "high_pass": 100,
+        "low_pass": 5000
+      }
+    },
+    "Sangat_Zoom_Mic": {
+      "description": "User created profile",
+      "gain": 0.0,
+      "normalize": {
+        "enabled": true,
+        "method": "lufs",
+        "target_level": -15.0
+      },
+      "dynamic_processing": {
+        "enabled": false,
+        "compressor": {
+          "threshold": -18.0,
+          "ratio": 2.5,
+          "attack": 20.0,
+          "release": 250.0
+        },
+        "limiter": {
+          "enabled": false,
+          "threshold": -1.0,
+          "release": 50.0
+        }
+      },
+      "use_eq": false,
+      "eq": {
+        "high_pass": 100,
+        "low_pass": 7000
+      }
+    },
+    "Internal Zoom_LR": {
+      "description": "User created profile",
+      "gain": 0.0,
+      "normalize": {
+        "enabled": true,
+        "method": "lufs",
+        "target_level": -30.0
+      },
+      "dynamic_processing": {
+        "enabled": false,
+        "compressor": {
+          "threshold": -18.0,
+          "ratio": 2.5,
+          "attack": 20.0,
+          "release": 250.0
+        },
+        "limiter": {
+          "enabled": false,
+          "threshold": -1.0,
+          "release": 50.0
+        }
+      },
+      "use_eq": false,
+      "eq": {
+        "high_pass": 100,
+        "low_pass": 10000
+      }
+    }
+  },
+  "settings": {
+    "silence_threshold": 21,
+    "min_silence": 4000,
+    "seek_step": 2000,
+    "min_time_between_segments": 30000,
+    "min_segment_length": 15,
+    "dropout": 1,
+    "pre_segment_padding": -4000,
+    "post_segment_padding": 4000,
+    "save_unsegmented": false,
+    "trim_only": false,
+    "batch_normalize": true,
+    "process_speed": "Full Speed",
+    "cache_size": 2048,
+    "multi_core": true,
+    "processor_limit": 4,
+    "output_format": "mp3",
+    "mp3_bitrate": 128,
+    "show_all_operations": false,
+    "confirm_overwrite": true,
+    "default_folder": "C:/Users/bh/Music/samagams/2025/Detroit/Sun Mor/preneet",
+    "last_opened_folder": "C:/Users/bh/Music/samagams/2025/Detroit/Sun Mor/preneet"
+  }
+}

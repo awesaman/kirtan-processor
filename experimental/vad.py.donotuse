@@ -1,0 +1,49 @@
+"""
+Voice Activity Detection (VAD) module.
+This module provides functions to detect voice segments in audio.
+"""
+from pydub import AudioSegment
+import numpy as np
+from .detection import detect_silence_efficiently  # Import from our existing detection module
+
+def detect_voice_segments(audio_segment, frame_duration_ms=30, aggressiveness=2, min_voice_ms=500):
+    """
+    Detect voice segments in the given audio segment.
+    
+    Parameters:
+    -----------
+    audio_segment : pydub.AudioSegment
+        The audio segment to analyze
+    frame_duration_ms : int, optional
+        Frame duration in milliseconds (default is 30)
+    aggressiveness : int, optional
+        Aggressiveness level from 0 to 3 (default is 2)
+    min_voice_ms : int, optional
+        Minimum voice segment duration in milliseconds (default is 500)
+    
+    Returns:
+    --------
+    list of tuples
+        List of (start_time, end_time) tuples in milliseconds
+    """
+    print(f"[VAD] Detecting voice segments with frame_duration_ms={frame_duration_ms}, " 
+          f"aggressiveness={aggressiveness}, min_voice_ms={min_voice_ms}")
+    
+    # Calculate threshold based on aggressiveness level (higher = more aggressive filtering)
+    # Aggressiveness values 0-3 map to thresholds from -35 to -20
+    silence_thresh = -35 + (aggressiveness * 5)
+    
+    # We'll assume non-silent segments are voice segments
+    # Using the existing detection function with our parameters
+    voice_segments = detect_silence_efficiently(
+        audio_segment,
+        min_silence_len=min_voice_ms,
+        silence_thresh=silence_thresh,
+        seek_step=frame_duration_ms
+    )
+    
+    # Return the detected segments
+    return voice_segments
+
+# Explicitly export the detect_voice_segments function
+__all__ = ['detect_voice_segments']

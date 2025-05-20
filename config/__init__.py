@@ -1,0 +1,1 @@
+"""Configuration and default settings for Kirtan Processor"""

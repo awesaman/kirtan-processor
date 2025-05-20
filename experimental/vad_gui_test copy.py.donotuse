@@ -1,0 +1,607 @@
+# vad_gui_test.py
+"""
+GUI tool for analyzing VAD (Voice Activity Detection) segment detection on a selected audio file.
+Lets you tweak VAD parameters, select a file, and see a log of detected voice segments.
+"""
+import sys
+import os
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
+    QFileDialog, QTextEdit, QSpinBox, QDoubleSpinBox, QGroupBox, QFormLayout, QTextBrowser, QTabWidget
+)
+from PyQt6.QtCore import Qt
+from pydub import AudioSegment
+from audio.vad import detect_voice_segments
+
+try:
+    import matplotlib.pyplot as plt
+    import numpy as np
+    HAS_PLOT = True
+except ImportError:
+    HAS_PLOT = False
+
+class VADGuiTest(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("VAD Segment Analyzer")
+        self.audio_file = None
+        self.audio = None
+        self.segments = []
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        # File selection
+        file_layout = QHBoxLayout()
+        self.file_label = QLabel("No file selected")
+        select_btn = QPushButton("Select Audio File")
+        select_btn.clicked.connect(self.select_file)
+        file_layout.addWidget(self.file_label)
+        file_layout.addWidget(select_btn)
+        layout.addLayout(file_layout)
+
+        # VAD parameter controls
+        param_group = QGroupBox("VAD Parameters")
+        param_layout = QFormLayout()
+        self.frame_duration_ms = QSpinBox()
+        self.frame_duration_ms.setRange(10, 30)
+        self.frame_duration_ms.setSingleStep(10)
+        self.frame_duration_ms.setValue(30)
+        param_layout.addRow("Frame size (ms):", self.frame_duration_ms)
+        self.aggressiveness = QDoubleSpinBox()
+        self.aggressiveness.setRange(0, 3)
+        self.aggressiveness.setSingleStep(0.1)
+        self.aggressiveness.setValue(2.0)
+        param_layout.addRow("Aggressiveness (0-3):", self.aggressiveness)
+        self.min_voice_ms = QSpinBox()
+        self.min_voice_ms.setRange(50, 5000)
+        self.min_voice_ms.setValue(500)
+        param_layout.addRow("Min voice segment (ms):", self.min_voice_ms)
+        # Scan window controls
+        self.scan_window_sec = QSpinBox()
+        self.scan_window_sec.setRange(10, 600)
+        self.scan_window_sec.setValue(120)  # default 2 minutes
+        param_layout.addRow("Scan window (seconds):", self.scan_window_sec)
+        # Vocal dB threshold control
+        self.vocal_dbfs_thresh = QDoubleSpinBox()
+        self.vocal_dbfs_thresh.setRange(-60, 0)
+        self.vocal_dbfs_thresh.setValue(-19.0)
+        self.vocal_dbfs_thresh.setSingleStep(1.0)
+        param_layout.addRow("Vocal dB threshold (dBFS):", self.vocal_dbfs_thresh)
+        # Consecutive frames above threshold for onset
+        self.consec_onset_frames = QSpinBox()
+        self.consec_onset_frames.setRange(1, 10)
+        self.consec_onset_frames.setValue(3)
+        param_layout.addRow("Consecutive frames above threshold for onset:", self.consec_onset_frames)
+        # Add dB jump threshold for vocal onset detection
+        self.db_jump_thresh = QDoubleSpinBox()
+        self.db_jump_thresh.setRange(1, 20)
+        self.db_jump_thresh.setValue(6.0)
+        self.db_jump_thresh.setSingleStep(0.5)
+        param_layout.addRow("dB jump for vocal onset (dB):", self.db_jump_thresh)
+        
+        # Add time buffer controls for final output
+        buffer_layout = QHBoxLayout()
+        self.start_buffer = QDoubleSpinBox()
+        self.start_buffer.setRange(-60, 60)  # Negative values only (shift earlier)
+        self.start_buffer.setValue(-3.0)  # Default 3 second buffer before
+        self.start_buffer.setSingleStep(0.5)
+        self.start_buffer.setSuffix(" sec")
+        
+        self.end_buffer = QDoubleSpinBox()
+        self.end_buffer.setRange(-60, 60)  # Positive values only (shift later)
+        self.end_buffer.setValue(3.0)  # Default 4 second buffer after
+        self.end_buffer.setSingleStep(0.5)
+        self.end_buffer.setSuffix(" sec")
+        
+        buffer_layout.addWidget(QLabel("Start buffer:"))
+        buffer_layout.addWidget(self.start_buffer)
+        buffer_layout.addWidget(QLabel("End buffer:"))
+        buffer_layout.addWidget(self.end_buffer)
+        param_layout.addRow("Time buffers:", buffer_layout)
+        
+        param_group.setLayout(param_layout)
+        layout.addWidget(param_group)
+
+        # Run and plot buttons
+        btn_layout = QHBoxLayout()
+        self.run_btn = QPushButton("Run VAD Analysis")
+        self.run_btn.clicked.connect(self.run_vad)
+        btn_layout.addWidget(self.run_btn)
+        if HAS_PLOT:
+            self.plot_btn = QPushButton("Plot Segments")
+            self.plot_btn.clicked.connect(self.plot_segments)
+            self.plot_btn.setEnabled(False)
+            btn_layout.addWidget(self.plot_btn)
+        layout.addLayout(btn_layout)
+
+        # Log output
+        self.tabs = QTabWidget()
+        # Start tab
+        self.start_tab = QWidget()
+        self.start_tab_layout = QVBoxLayout()
+        self.start_log = QTextBrowser()
+        self.start_log.setReadOnly(True)
+        self.start_tab_layout.addWidget(self.start_log)
+        self.start_tab.setLayout(self.start_tab_layout)
+        # End tab
+        self.end_tab = QWidget()
+        self.end_tab_layout = QVBoxLayout()
+        self.end_log = QTextBrowser()
+        self.end_log.setReadOnly(True)
+        self.end_tab_layout.addWidget(self.end_log)
+        self.end_tab.setLayout(self.end_tab_layout)
+        self.tabs.addTab(self.start_tab, "Start")
+        self.tabs.addTab(self.end_tab, "End")
+        layout.addWidget(self.tabs)
+        # Remove old log widget from layout (if present)
+        # layout.removeWidget(self.log)
+        # self.log.deleteLater()
+        # self.log = None
+
+        # Add clear log button
+        clear_log_btn = QPushButton("Clear Log")
+        clear_log_btn.clicked.connect(self.start_log.clear)
+        layout.addWidget(clear_log_btn)
+        self.setLayout(layout)
+        self.resize(700, 500)
+
+    def toggle_segment(self, seg_idx):
+        # Toggle expand/collapse for a segment in the log
+        if seg_idx in self.collapsed_segments:
+            self.collapsed_segments.remove(seg_idx)
+        else:
+            self.collapsed_segments.add(seg_idx)
+        self.update_log_view()
+
+    def update_log_view(self):
+        # Redraw the logs for both tabs
+        self.start_log.clear()
+        self.end_log.clear()
+        for entry in self.log_entries:
+            if isinstance(entry, dict) and entry.get('type') == 'segment':
+                seg_idx = entry['seg_idx']
+                seg_header = entry['header']
+                if seg_idx in self.collapsed_segments:
+                    self.start_log.append(f"<a href='expand_{seg_idx}'>[+]</a> {seg_header}")
+                else:
+                    self.start_log.append(f"<a href='collapse_{seg_idx}'>[-]</a> {seg_header}")
+                    for line in entry['lines']:
+                        self.start_log.append(line)
+            elif isinstance(entry, dict) and entry.get('type') == 'end_segment':
+                seg_idx = entry['seg_idx']
+                seg_header = entry['header']
+                if seg_idx in self.collapsed_segments:
+                    self.end_log.append(f"<a href='expand_end_{seg_idx}'>[+]</a> {seg_header}")
+                else:
+                    self.end_log.append(f"<a href='collapse_end_{seg_idx}'>[-]</a> {seg_header}")
+                    for line in entry['lines']:
+                        self.end_log.append(line)
+            elif isinstance(entry, dict) and entry.get('type') == 'end_summary':
+                self.end_log.append(entry['html'])
+            elif isinstance(entry, str) and entry.startswith('<b>Earliest true vocal onset'):
+                self.start_log.append(entry)
+            elif isinstance(entry, str) and entry.startswith('<b>True vocal end'):
+                self.end_log.append(entry)
+            elif isinstance(entry, str) and entry.startswith('<b>No quiet frame found'):
+                self.end_log.append(entry)
+            elif isinstance(entry, str) and entry.startswith('No vocals detected in first'):
+                self.start_log.append(entry)
+            elif isinstance(entry, str) and entry.startswith('No vocals detected in last'):
+                self.end_log.append(entry)
+            else:
+                self.start_log.append(entry)
+        self.start_log.setOpenExternalLinks(False)
+        self.start_log.anchorClicked.connect(self.log_link_clicked)
+        self.end_log.setOpenExternalLinks(False)
+        self.end_log.anchorClicked.connect(self.log_link_clicked)
+        if HAS_PLOT:
+            self.plot_btn.setEnabled(bool(self.segments))
+
+    def select_file(self):
+        file, _ = QFileDialog.getOpenFileName(self, "Select Audio File", "", "Audio Files (*.wav *.mp3 *.flac *.ogg)")
+        if file:
+            self.audio_file = file
+            self.file_label.setText(os.path.basename(file))
+            self.start_log.append(f"Selected file: {file}")
+            self.audio = None
+            self.segments = []
+            if HAS_PLOT:
+                self.plot_btn.setEnabled(False)
+
+    def run_vad(self):
+        if not self.audio_file:
+            self.start_log.append("No audio file selected.")
+            return
+        try:
+            self.audio = AudioSegment.from_file(self.audio_file)
+            # Normalize to target dBFS before VAD
+            from pydub import effects
+            target_dbfs = -3.0
+            self.audio = effects.normalize(self.audio)
+            change_in_dBFS = target_dbfs - self.audio.dBFS
+            self.audio = self.audio.apply_gain(change_in_dBFS)
+            self.start_log.append(f"Audio normalized to {target_dbfs} dBFS.")
+        except Exception as e:
+            self.start_log.append(f"Error loading audio: {e}")
+            return
+        vad_kwargs = {
+            "aggressiveness": int(self.aggressiveness.value()),
+            "frame_duration_ms": self.frame_duration_ms.value(),
+            "min_voice_ms": self.min_voice_ms.value(),
+        }
+        scan_window_ms = self.scan_window_sec.value() * 1000
+        audio_len = len(self.audio)
+        self.start_log.append(f"\nScanning first {self.scan_window_sec.value()}s and last {self.scan_window_sec.value()}s of track...")
+        # First N seconds
+        first_window = self.audio[:scan_window_ms]
+        first_segments = detect_voice_segments(first_window, **vad_kwargs)
+        self.log_entries = []
+        self.collapsed_segments = set(range(len(first_segments))) if first_segments else set()
+        if first_segments:
+            self.log_entries.append(f"Detected {len(first_segments)} VAD segments in first {self.scan_window_sec.value()}s:")
+            frame_ms = self.frame_duration_ms.value()
+            dbfs_thresh = self.vocal_dbfs_thresh.value()
+            db_jump_thresh = self.db_jump_thresh.value()
+            earliest_onset = None
+            earliest_onset_seg_idx = None
+            best_avg_dbfs = float('-inf')
+            best_seg_idx = None
+            best_seg_start = None
+            seg_avg_dbfs_list = []
+            jump_candidate_idx = None
+            jump_candidate_start = None
+            jump_candidate_dbfs = None
+            jump_prev_mean = None
+            for seg_idx, (seg_start, seg_end) in enumerate(first_segments):
+                seg_start_s = seg_start / 1000.0
+                seg_end_s = seg_end / 1000.0
+                seg_audio = first_window[seg_start:seg_end]
+                # Calculate average dBFS for this segment
+                avg_dbfs = seg_audio.dBFS if len(seg_audio) > 0 else float('-inf')
+                seg_avg_dbfs_list.append(avg_dbfs)
+                # Jump detection: compare to mean of previous segments
+                if seg_idx > 0:
+                    prev_mean = sum(seg_avg_dbfs_list[:seg_idx]) / seg_idx
+                    if avg_dbfs - prev_mean >= db_jump_thresh and avg_dbfs > dbfs_thresh and jump_candidate_idx is None:
+                        jump_candidate_idx = seg_idx
+                        jump_candidate_start = seg_start
+                        jump_candidate_dbfs = avg_dbfs
+                        jump_prev_mean = prev_mean
+                seg_header = f"  Segment {seg_idx+1}: {seg_start_s:.2f}s - {seg_end_s:.2f}s ({(seg_end_s-seg_start_s):.2f}s, avg dBFS={avg_dbfs:.2f})"
+                seg_lines = []
+                for i in range(0, min(len(seg_audio), frame_ms*10), frame_ms):
+                    frame = seg_audio[i:i+frame_ms]
+                    seg_lines.append(f"    [Debug] Frame {i//frame_ms}: dBFS={frame.dBFS:.2f}")
+                # Find first sequence of N consecutive frames above threshold in this segment
+                consec_needed = self.consec_onset_frames.value()
+                above_count = 0
+                onset_candidate = None
+                onset_debug = None
+                for i in range(0, len(seg_audio), frame_ms):
+                    frame = seg_audio[i:i+frame_ms]
+                    if frame.dBFS > dbfs_thresh:
+                        if above_count == 0:
+                            onset_candidate = seg_start + i
+                            onset_debug = (i // frame_ms, frame.dBFS)
+                        above_count += 1
+                        if above_count >= consec_needed:
+                            if earliest_onset is None or onset_candidate < earliest_onset:
+                                earliest_onset = onset_candidate
+                                earliest_onset_seg_idx = seg_idx
+                                earliest_onset_debug = (seg_idx, onset_debug)
+                            break
+                    else:
+                        above_count = 0
+                        onset_candidate = None
+                        onset_debug = None
+                self.log_entries.append({'type': 'segment', 'seg_idx': seg_idx, 'header': seg_header, 'lines': seg_lines})
+            # Log best candidate for vocal start based on jump detection
+            if jump_candidate_idx is not None:
+                jump_start_s = jump_candidate_start / 1000.0
+                self.log_entries.append(f"<b>Best vocal start candidate (jump): Segment {jump_candidate_idx+1} (avg dBFS={jump_candidate_dbfs:.2f}, prev mean={jump_candidate_dbfs:.2f}, jump={jump_candidate_dbfs-jump_prev_mean:.2f} dB) at {jump_start_s:.2f}s</b>")
+            elif earliest_onset_seg_idx is not None and seg_avg_dbfs_list[earliest_onset_seg_idx] > dbfs_thresh:
+                # Fallback: earliest segment above threshold
+                fallback_start = first_segments[earliest_onset_seg_idx][0] / 1000.0
+                fallback_dbfs = seg_avg_dbfs_list[earliest_onset_seg_idx]
+                self.log_entries.append(f"<b>Best vocal start candidate (fallback): Segment {earliest_onset_seg_idx+1} (avg dBFS={fallback_dbfs:.2f}) at {fallback_start:.2f}s</b>")
+            else:
+                # Fallback: loudest segment
+                if seg_avg_dbfs_list:
+                    best_seg_idx = max(range(len(seg_avg_dbfs_list)), key=lambda i: seg_avg_dbfs_list[i])
+                    best_start_s = first_segments[best_seg_idx][0] / 1000.0
+                    best_dbfs = seg_avg_dbfs_list[best_seg_idx]
+                    self.log_entries.append(f"<b>Best vocal start candidate (loudest): Segment {best_seg_idx+1} (avg dBFS={best_dbfs:.2f}) at {best_start_s:.2f}s</b>")
+            # Log which frame triggered the onset
+            if jump_candidate_idx is not None:
+                # Use the jump candidate as the preferred vocal onset
+                onset_ms = jump_candidate_start
+                onset_s = onset_ms / 1000.0
+                onset_mm, onset_ss = divmod(int(onset_s), 60)
+                
+                # Apply the start buffer (will be negative, so it subtracts)
+                start_buffer_ms = self.start_buffer.value() * 1000
+                buffered_onset_ms = max(0, onset_ms + start_buffer_ms)
+                # Ensure buffered onset time does not exceed the length of the audio
+                buffered_onset_ms = min(buffered_onset_ms, len(self.audio))
+                
+                buffered_onset_s = buffered_onset_ms / 1000.0
+                buffered_mm, buffered_ss = divmod(int(buffered_onset_s), 60)
+
+                self.log_entries.append(f"<b>Using jump detection for vocal onset at: {onset_mm:02d}:{onset_ss:02d} (Segment {jump_candidate_idx+1}, avg dBFS={jump_candidate_dbfs:.2f})</b>")
+                # Add buffered start time
+                self.log_entries.append(f"<b style='font-size:16px;color:#0077AA;'>Final vocal start with buffer ({self.start_buffer.value():.1f} sec): <span style='font-size:18px;'>{buffered_mm:02d}:{buffered_ss:02d}</span> (mm:ss from start of file)</b>")
+            elif earliest_onset is not None:
+                onset_ms = earliest_onset
+                # Apply the start buffer (will be negative, so it subtracts)
+                start_buffer_ms = self.start_buffer.value() * 1000
+                buffered_onset_ms = max(0, onset_ms + start_buffer_ms)
+                # Ensure buffered onset time does not exceed the length of the audio
+                buffered_onset_ms = min(buffered_onset_ms, len(self.audio))
+                
+                # Calculate times for both raw and buffered values
+                onset_s = onset_ms / 1000.0
+                buffered_onset_s = buffered_onset_ms / 1000.0
+                
+                onset_mm, onset_ss = divmod(int(onset_s), 60)
+                buffered_mm, buffered_ss = divmod(int(buffered_onset_s), 60)
+                
+                seg_idx, onset_debug = earliest_onset_debug if 'earliest_onset_debug' in locals() else (None, None)
+                if onset_debug:
+                    frame_idx, frame_dbfs = onset_debug
+                    self.log_entries.append(f"<b>Earliest true vocal onset (>{dbfs_thresh} dBFS) at: {onset_mm:02d}:{onset_ss:02d} (Segment {earliest_onset_seg_idx+1}, Frame {frame_idx}, dBFS={frame_dbfs:.2f})</b>")
+                    # Add buffered start time
+                    self.log_entries.append(f"<b style='font-size:16px;color:#0077AA;'>Final vocal start with buffer ({self.start_buffer.value():.1f} sec): <span style='font-size:18px;'>{buffered_mm:02d}:{buffered_ss:02d}</span> (mm:ss from start of file)</b>")
+                else:
+                    self.log_entries.append(f"<b>Earliest true vocal onset (>{dbfs_thresh} dBFS) at: {onset_mm:02d}:{onset_ss:02d} (Segment {earliest_onset_seg_idx+1})</b>")
+                    # Add buffered start time
+                    self.log_entries.append(f"<b style='font-size:16px;color:#0077AA;'>Final vocal start with buffer ({self.start_buffer.value():.1f} sec): <span style='font-size:18px;'>{buffered_mm:02d}:{buffered_ss:02d}</span> (mm:ss from start of file)</b>")
+            else:
+                self.log_entries.append(f"<b>No frame in any segment exceeded {dbfs_thresh} dBFS.</b>")
+        else:
+            self.log_entries.append(f"No vocals detected in first {self.scan_window_sec.value()}s.")
+        # Last N seconds
+        last_window = self.audio[-scan_window_ms:]
+        last_segments = detect_voice_segments(last_window, **vad_kwargs)
+        # Default End tab segments to collapsed
+        if last_segments:
+            self.collapsed_segments.update(range(len(last_segments)))
+            self.log_entries.append(f"Detected {len(last_segments)} VAD segments in last {self.scan_window_sec.value()}s:")
+            frame_ms = self.frame_duration_ms.value()
+            dbfs_thresh = self.vocal_dbfs_thresh.value()
+            consec_needed = self.consec_onset_frames.value()  # Use same control for offset for now
+            latest_offset = None
+            latest_offset_seg_idx = None
+            latest_offset_debug = None
+            end_segment_indices = []
+            window_offset = len(self.audio) / 1000.0 - self.scan_window_sec.value()  # seconds
+            
+            # Calculate average dBFS for all segments up front
+            seg_avg_dbfs_list = []
+            for seg_idx, (seg_start, seg_end) in enumerate(last_segments):
+                seg_audio = last_window[seg_start:seg_end]
+                avg_dbfs = seg_audio.dBFS if len(seg_audio) > 0 else float('-inf')
+                seg_avg_dbfs_list.append(avg_dbfs)
+            
+            # FIRST PASS: Check for a significant dB drop between segments
+            db_jump_thresh = self.db_jump_thresh.value()
+            last_vocal_end = None
+            last_vocal_end_idx = None
+            prev_avg_dbfs = None
+            
+            for seg_idx, avg_dbfs in enumerate(seg_avg_dbfs_list):
+                if prev_avg_dbfs is not None and (prev_avg_dbfs - avg_dbfs) > db_jump_thresh and avg_dbfs < dbfs_thresh:
+                    # The drop happened at the start of this segment, so the end of the previous segment is the true vocal end
+                    # Only count it if the resulting segment is BELOW the dbfs threshold
+                    last_vocal_end = last_segments[seg_idx-1][1]
+                    last_vocal_end_idx = seg_idx-1
+                    break  # Break after the first significant drop
+                prev_avg_dbfs = avg_dbfs
+            
+            # Create log entries for all segments
+            for seg_idx, (seg_start, seg_end) in enumerate(last_segments):
+                seg_start_s = window_offset + seg_start / 1000.0
+                seg_end_s = window_offset + seg_end / 1000.0
+                seg_audio = last_window[seg_start:seg_end]
+                avg_dbfs = seg_avg_dbfs_list[seg_idx]
+                
+                # Highlight the segment identified as the last vocal segment
+                if seg_idx == last_vocal_end_idx:
+                    seg_header = f"  Segment {seg_idx+1}: {seg_start_s:.2f}s - {seg_end_s:.2f}s ({(seg_end_s-seg_start_s):.2f}s, avg dBFS={avg_dbfs:.2f}) <-- LAST VOCAL SEGMENT"
+                else:
+                    seg_header = f"  Segment {seg_idx+1}: {seg_start_s:.2f}s - {seg_end_s:.2f}s ({(seg_end_s-seg_start_s):.2f}s, avg dBFS={avg_dbfs:.2f})"
+                
+                seg_lines = []
+                for i in range(0, min(len(seg_audio), frame_ms*10), frame_ms):
+                    frame = seg_audio[i:i+frame_ms]
+                    seg_lines.append(f"    [Debug] Frame {i//frame_ms}: dBFS={frame.dBFS:.2f}")
+                
+                # Process consecutive frames logic for backward compatibility and debugging
+                below_count = 0
+                offset_candidate = None
+                offset_debug = None
+                for i in range(len(seg_audio)-frame_ms, -1, -frame_ms):
+                    frame = seg_audio[i:i+frame_ms]
+                    if frame.dBFS < dbfs_thresh:
+                        if below_count == 0:
+                            offset_candidate = seg_start + i
+                            offset_debug = (i // frame_ms, frame.dBFS)
+                        below_count += 1
+                        if below_count >= consec_needed:
+                            if latest_offset is None or offset_candidate + frame_ms > latest_offset:
+                                latest_offset = offset_candidate + frame_ms  # end of last quiet frame
+                                latest_offset_seg_idx = seg_idx
+                                latest_offset_debug = (seg_idx, offset_debug)
+                            break
+                    else:
+                        below_count = 0
+                        offset_candidate = None
+                        offset_debug = None
+                
+                self.log_entries.append({'type': 'end_segment', 'seg_idx': seg_idx, 'header': seg_header, 'lines': seg_lines})
+                end_segment_indices.append(seg_idx)
+            
+            # Now choose the best method for determining the true vocal end
+            if last_vocal_end is not None:
+                # METHOD 1: Use the first significant dB drop (preferred method)
+                abs_vocal_end_ms = (len(self.audio) - scan_window_ms) + last_vocal_end
+                abs_vocal_end_s = abs_vocal_end_ms / 1000.0
+                
+                # Apply the end buffer (positive value to extend duration)
+                end_buffer_ms = self.end_buffer.value() * 1000
+                buffered_end_ms = min(len(self.audio), abs_vocal_end_ms + end_buffer_ms)  # Ensure we don't exceed file length
+                buffered_end_s = buffered_end_ms / 1000.0
+                
+                # Calculate times for both raw and buffered values
+                abs_vocal_end_mm, abs_vocal_end_ss = divmod(int(abs_vocal_end_s), 60)
+                buffered_end_mm, buffered_end_ss = divmod(int(buffered_end_s), 60)
+                
+                raw_end_time_str = f"{abs_vocal_end_mm:02d}:{abs_vocal_end_ss:02d}"
+                buffered_end_time_str = f"{buffered_end_mm:02d}:{buffered_end_ss:02d}"
+                
+                # Log the segment that triggered the dB drop detection
+                next_seg_idx = last_vocal_end_idx + 1
+                drop_amount = seg_avg_dbfs_list[last_vocal_end_idx] - seg_avg_dbfs_list[next_seg_idx]
+                
+                print(f"[VADGuiTest] TRUE VOCAL END detected by dB drop: {raw_end_time_str} (segment {last_vocal_end_idx+1} to {next_seg_idx+1}, drop: {drop_amount:.2f} dB)")
+                print(f"[VADGuiTest] BUFFERED VOCAL END: {buffered_end_time_str} (with {self.end_buffer.value():.1f} sec buffer)")
+                
+                self.log_entries.append(
+                    f"<b>True vocal end (dB drop {drop_amount:.2f} dB > {db_jump_thresh} threshold): {raw_end_time_str} (mm:ss from start of file, end of Segment {last_vocal_end_idx+1})</b>"
+                )
+                # Add buffered end time with nice formatting
+                self.log_entries.append(
+                    f"<b style='font-size:16px;color:#007700;'>Final vocal end with buffer (+{self.end_buffer.value():.1f} sec): <span style='font-size:18px;'>{buffered_end_time_str}</span> (mm:ss from start of file)</b>"
+                )
+            elif latest_offset is not None:
+                # METHOD 2: Use consecutive frames below threshold (fallback)
+                abs_offset_ms = (len(self.audio) - scan_window_ms) + latest_offset
+                abs_offset_s = abs_offset_ms / 1000.0
+                
+                # Apply the end buffer (positive value to extend duration)
+                end_buffer_ms = self.end_buffer.value() * 1000
+                buffered_end_ms = min(len(self.audio), abs_offset_ms + end_buffer_ms)  # Ensure we don't exceed file length
+                buffered_end_s = buffered_end_ms / 1000.0
+                
+                # Calculate times for both raw and buffered values
+                abs_offset_mm, abs_offset_ss = divmod(int(abs_offset_s), 60)
+                buffered_end_mm, buffered_end_ss = divmod(int(buffered_end_s), 60)
+                
+                raw_end_time_str = f"{abs_offset_mm:02d}:{abs_offset_ss:02d}"
+                buffered_end_time_str = f"{buffered_end_mm:02d}:{buffered_end_ss:02d}"
+                
+                print(f"[VADGuiTest] Fallback vocal end time (consecutive frames): {raw_end_time_str}")
+                print(f"[VADGuiTest] BUFFERED FALLBACK END: {buffered_end_time_str} (with {self.end_buffer.value():.1f} sec buffer)")
+                
+                win_offset_s = latest_offset / 1000.0
+                win_mm, win_ss = divmod(int(win_offset_s), 60)
+                seg_idx, offset_debug = latest_offset_debug if latest_offset_debug else (None, None)
+                
+                if offset_debug is not None and latest_offset_seg_idx is not None:
+                    frame_idx, frame_dbfs = offset_debug
+                    self.log_entries.append(
+                        f"<b>True vocal end (<{dbfs_thresh} dBFS) at: {win_offset_s:.2f}s [window {win_mm:02d}:{win_ss:02d}] | {abs_offset_s:.2f}s [file {abs_offset_mm:02d}:{abs_offset_ss:02d}] "
+                        f"(Segment {latest_offset_seg_idx+1}, Frame {frame_idx}, dBFS={frame_dbfs:.2f})</b>"
+                    )
+                else:
+                    self.log_entries.append(
+                        f"<b>True vocal end (<{dbfs_thresh} dBFS) at: {win_offset_s:.2f}s [window {win_mm:02d}:{win_ss:02d}] | {abs_offset_s:.2f}s [file {abs_offset_mm:02d}:{abs_offset_ss:02d}]</b>"
+                    )
+                
+                # Add buffered end time with nice formatting
+                self.log_entries.append(
+                    f"<b style='font-size:16px;color:#007700;'>Final vocal end with buffer (+{self.end_buffer.value():.1f} sec): <span style='font-size:18px;'>{buffered_end_time_str}</span> (mm:ss from start of file)</b>"
+                )
+            else:
+                # METHOD 3: Last segment above threshold (last resort fallback)
+                last_vocal_seg_end = None
+                last_vocal_seg_idx = None
+                for seg_idx, avg_dbfs in enumerate(seg_avg_dbfs_list):
+                    if avg_dbfs > dbfs_thresh:
+                        last_vocal_seg_end = last_segments[seg_idx][1]
+                        last_vocal_seg_idx = seg_idx
+                
+                if last_vocal_seg_end is not None:
+                    abs_vocal_end_ms = (len(self.audio) - scan_window_ms) + last_vocal_seg_end
+                    abs_vocal_end_s = abs_vocal_end_ms / 1000.0
+                    
+                    # Apply the end buffer (positive value to extend duration)
+                    end_buffer_ms = self.end_buffer.value() * 1000
+                    buffered_end_ms = min(len(self.audio), abs_vocal_end_ms + end_buffer_ms)  # Ensure we don't exceed file length
+                    buffered_end_s = buffered_end_ms / 1000.0
+                    
+                    # Calculate times for both raw and buffered values
+                    abs_vocal_end_mm, abs_vocal_end_ss = divmod(int(abs_vocal_end_s), 60)
+                    buffered_end_mm, buffered_end_ss = divmod(int(buffered_end_s), 60)
+                    
+                    raw_end_time_str = f"{abs_vocal_end_mm:02d}:{abs_vocal_end_ss:02d}"
+                    buffered_end_time_str = f"{buffered_end_mm:02d}:{buffered_end_ss:02d}"
+                    
+                    print(f"[VADGuiTest] Last resort vocal end time: {raw_end_time_str}")
+                    print(f"[VADGuiTest] BUFFERED LAST RESORT END: {buffered_end_time_str} (with {self.end_buffer.value():.1f} sec buffer)")
+                    
+                    self.log_entries.append(
+                        f"<b>True vocal end (last segment above threshold): {raw_end_time_str} (mm:ss from start of file, Segment {last_vocal_seg_idx+1})</b>"
+                    )
+                    
+                    # Add buffered end time with nice formatting
+                    self.log_entries.append(
+                        f"<b style='font-size:16px;color:#007700;'>Final vocal end with buffer (+{self.end_buffer.value():.1f} sec): <span style='font-size:18px;'>{buffered_end_time_str}</span> (mm:ss from start of file)</b>"
+                    )
+                else:
+                    self.log_entries.append(f"<b>No vocal segment above threshold found in last {self.scan_window_sec.value()}s.</b>")
+        else:
+            self.log_entries.append(f"No vocals detected in last {self.scan_window_sec.value()}s.")
+        self.update_log_view()
+        self.start_log.setOpenExternalLinks(False)
+        self.start_log.anchorClicked.connect(self.log_link_clicked)
+        # End tab expand/collapse support
+        self.end_log.setOpenExternalLinks(False)
+        self.end_log.anchorClicked.connect(self.log_link_clicked)
+
+        if HAS_PLOT:
+            self.plot_btn.setEnabled(bool(self.segments))
+
+    def plot_segments(self):
+        if not (self.audio and self.segments):
+            self.start_log.append("No segments to plot.")
+            return
+        samples = np.array(self.audio.get_array_of_samples())
+        times = np.arange(len(samples)) / self.audio.frame_rate
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(15, 4))
+        plt.plot(times, samples, label="Waveform", alpha=0.5)
+        for start, end in self.segments:
+            plt.axvspan(start / 1000, end / 1000, color='red', alpha=0.3)
+        plt.title(f"VAD Segments: {os.path.basename(self.audio_file)}")
+        plt.xlabel("Time (s)")
+        plt.ylabel("Amplitude")
+        plt.legend(["Waveform", "Voice Segments"])
+        plt.tight_layout()
+        plt.show()
+
+    def log_link_clicked(self, url):
+        url_str = url.toString() if hasattr(url, 'toString') else str(url)
+        if url_str.startswith('expand_') and not url_str.startswith('expand_end_'):
+            seg_idx = int(url_str.split('_')[1])
+            self.collapsed_segments.discard(seg_idx)
+            self.update_log_view()
+        elif url_str.startswith('collapse_') and not url_str.startswith('collapse_end_'):
+            seg_idx = int(url_str.split('_')[1])
+            self.collapsed_segments.add(seg_idx)
+            self.update_log_view()
+        elif url_str.startswith('expand_end_'):
+            seg_idx = int(url_str.split('_')[2])
+            self.collapsed_segments.discard(seg_idx)
+            self.update_log_view()
+        elif url_str.startswith('collapse_end_'):
+            seg_idx = int(url_str.split('_')[2])
+            self.collapsed_segments.add(seg_idx)
+            self.update_log_view()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    win = VADGuiTest()
+    win.show()
+    sys.exit(app.exec())

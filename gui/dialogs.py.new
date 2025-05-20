@@ -1,0 +1,179 @@
+"""
+Dialog components for the Kirtan Processor application.
+"""
+import os
+import sys
+import platform
+import subprocess
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+    QProgressBar, QPushButton, QApplication
+)
+from PyQt6.QtCore import Qt
+
+
+class ProgressDialog(QDialog):
+    """Dialog that displays progress during a lengthy operation."""
+    
+    def __init__(self, parent, title, message):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumWidth(450)
+        self.setMinimumHeight(180)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowTitleHint | Qt.WindowType.CustomizeWindowHint)
+        
+        layout = QVBoxLayout()
+        
+        # Header with operation title
+        self.message_label = QLabel(message)
+        self.message_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(self.message_label)
+        
+        # Current file being processed
+        self.file_label = QLabel("")
+        layout.addWidget(self.file_label)
+        
+        # Progress bar with visible percentage
+        progress_layout = QHBoxLayout()
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("%p%")
+        progress_layout.addWidget(self.progress_bar, 9)
+        
+        # Add percentage label
+        self.percentage_label = QLabel("0%")
+        progress_layout.addWidget(self.percentage_label, 1)
+        layout.addLayout(progress_layout)
+        
+        # Status updates
+        self.status_label = QLabel("Preparing...")
+        layout.addWidget(self.status_label)
+        
+        self.setLayout(layout)
+        
+        # Center the dialog on parent
+        if parent:
+            self.move(
+                parent.x() + parent.width() // 2 - self.width() // 2,
+                parent.y() + parent.height() // 2 - self.height() // 2
+            )
+    
+    def update_progress(self, value, total=None):
+        """Update progress value."""
+        if total is not None:
+            # Calculate percentage
+            if total > 0:
+                percentage = (value / total) * 100
+                percentage_int = int(percentage)
+                self.progress_bar.setValue(percentage_int)
+                self.percentage_label.setText(f"{percentage_int}%")
+                
+                # Only update status if it's an integer change to avoid flicker
+                if percentage_int % 5 == 0 or percentage_int == 100:
+                    self.status_label.setText(f"Processing file {value+1} of {total} ({percentage_int}%)")
+        else:
+            # Direct percentage value
+            self.progress_bar.setValue(value)
+            self.percentage_label.setText(f"{value}%")
+            if value % 5 == 0 or value == 100:
+                self.status_label.setText(f"Processing: {value}% complete")
+        QApplication.processEvents()
+    
+    def update_message(self, message):
+        """Update main message text."""
+        self.message_label.setText(message)
+        QApplication.processEvents()
+    
+    def update_file(self, file_text):
+        """Update current file text."""
+        # Add some styling to make the filename stand out
+        self.file_label.setText(f"<span style='color:#0066cc;'>{file_text}</span>")
+        self.file_label.setTextFormat(Qt.TextFormat.RichText)
+        QApplication.processEvents()
+    
+    def update_status(self, status):
+        """Update status message."""
+        # Add a timestamp to the status update to show activity
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.status_label.setText(f"[{timestamp}] {status}")
+        QApplication.processEvents()
+
+
+class OperationCompletionDialog(QDialog):
+    """Dialog that shows when an operation like trim or fade is complete."""
+    
+    def __init__(self, parent, title, message, directory_path=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumWidth(450)
+        self.directory_path = directory_path
+        
+        layout = QVBoxLayout()
+        
+        # Add a success icon or header
+        from datetime import datetime
+        completion_time = datetime.now().strftime("%H:%M:%S")
+        
+        # Success header with styled text
+        header = QLabel(f"<h3 style='color:green;'>✓ Operation Complete</h3>")
+        header.setTextFormat(Qt.TextFormat.RichText)
+        layout.addWidget(header)
+        
+        # Timestamp of completion
+        time_label = QLabel(f"Completed at: {completion_time}")
+        layout.addWidget(time_label)
+        
+        # The actual results message
+        message_label = QLabel(message)
+        message_label.setWordWrap(True)
+        layout.addWidget(message_label)
+        
+        # Path information if available
+        if directory_path:
+            path_label = QLabel(f"Files saved in: <span style='color:#0066cc;'>{directory_path}</span>")
+            path_label.setTextFormat(Qt.TextFormat.RichText)
+            path_label.setWordWrap(True)
+            layout.addWidget(path_label)
+        
+        # Add some spacing
+        layout.addSpacing(10)
+        
+        button_layout = QHBoxLayout()
+        
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(self.accept)
+        button_layout.addWidget(close_button)
+        
+        if directory_path and os.path.exists(directory_path):
+            open_folder_button = QPushButton("Open Folder")
+            open_folder_button.clicked.connect(self.open_folder)
+            open_folder_button.setStyleSheet("background-color: #0066cc; color: white; font-weight: bold;")
+            button_layout.addWidget(open_folder_button)
+        
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+        
+        # Center the dialog on parent
+        if parent:
+            self.move(
+                parent.x() + parent.width() // 2 - self.width() // 2,
+                parent.y() + parent.height() // 2 - self.height() // 2
+            )
+    
+    def open_folder(self):
+        """Open the directory in the system's file explorer."""
+        if not self.directory_path or not os.path.exists(self.directory_path):
+            return
+        
+        try:
+            if platform.system() == "Windows":
+                os.startfile(self.directory_path)
+            elif platform.system() == "Darwin":  # macOS
+                subprocess.call(['open', self.directory_path])
+            else:  # Linux and other Unix-like systems
+                subprocess.call(['xdg-open', self.directory_path])
+        except Exception as e:
+            print(f"Error opening folder: {str(e)}")

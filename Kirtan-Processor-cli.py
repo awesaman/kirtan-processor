@@ -37,10 +37,16 @@ INPUT_FORMAT = ".WAV"
 
 def format_time(t) -> str:
     """Formats num milliseconds to mm:ss or hh:mm:ss"""
-    mins = t // ONE_MIN
-    if mins > 59:
-        return f"{mins//60}:{mins%60:02}:{(t//1000)%60:02}"
-    return f"{mins}:{(t//1000)%60:02}"
+    seconds = int(t / 1000)
+    minutes = seconds // 60
+    seconds = seconds % 60
+    
+    if minutes > 59:
+        hours = minutes // 60
+        minutes = minutes % 60
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    else:
+        return f"{minutes:02d}:{seconds:02d}"
 
 
 def format_ms(start, end):
@@ -178,7 +184,7 @@ def edit_tracks(tup, chosen_dir_path, mics):
     for track in tracks:
         # NOTE: these comments are attempts to automatically name the tracks
         # get_export_name(track,chosen_dir_path, prefix)
-        # print("created: %s" % time.ctime(path.getmtime(f'{track}LR.WAV')))
+        # print("created: %s" % time.ctime(path.getmtime(f'{track}LR.WAV'))
         # this didn't work because metadata was destroyed during download
         # next step is to use fake vaari data and match up vaari time with timestamp
 
