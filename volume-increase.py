@@ -2,8 +2,8 @@ import os
 from pydub import AudioSegment
 
 # Set path to your audio files
-INPUT_FOLDER = "C:\\Users\\arshd\\Desktop\\FOLDER01\\edited"
-OUTPUT_FOLDER = "C:\\Users\\arshd\\Desktop\\FOLDER01\\edited\\louder"
+INPUT_FOLDER = ""
+OUTPUT_FOLDER = ""
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # dB change: positive = louder, negative = quieter
