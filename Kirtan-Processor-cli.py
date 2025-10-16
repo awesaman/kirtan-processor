@@ -413,6 +413,15 @@ _  _ _ ____ ___ ____ _  _   ___  ____ ____ ____ ____ ____ ____ ____ ____
             except Exception as e:
                 folder = futures[future]
                 print(f"Error processing folder {folder}: {e}")
+    
+    # print(all_subdirs)
+    # for folder in all_subdirs:
+    #     print(f"Processing folder: {folder}")
+    #     if os.path.exists(folder):
+    #         try:
+    #             edit_tracks(folder, chosen_dir_path, mics)
+    #         except Exception as e:
+    #             print(f"Error processing folder {folder}: {e}")
 
 
 if __name__ == "__main__":
